@@ -10,4 +10,4 @@ if ! command -v mvn >/dev/null 2>&1; then
 fi
 
 mvn -q -DskipTests compile exec:java \
-  -Dexec.mainClass=mx.unam.alpha.server.GameServerMain
+  -Dexec.mainClass=mx.itam.alpha.server.GameServerMain

@@ -1,202 +1,73 @@
 # Reporte del Proyecto Alpha
 
-## Contexto Breve
+## Contexto general
 
-Alpha es un juego distribuido en Java, "Pégale al monstruo", donde varios clientes compiten por golpear un monstruo en un tablero compartido. El sistema combina `TCP` para las operaciones críticas y `JMS` con ActiveMQ embebido para difundir monstruos, eventos globales, ganador y reinicio de partida.
+Alpha es un juego distribuido en Java en el que varios clientes compiten por golpear un monstruo que aparece en un tablero compartido. El sistema combina dos mecanismos de comunicación que cumplen funciones distintas y complementarias. Por un lado, utiliza TCP para las operaciones críticas que requieren una respuesta directa del servidor, como el registro, el inicio de sesión, la consulta del estado del juego y el envío de golpes. Por otro lado, utiliza JMS con ActiveMQ embebido para difundir eventos globales, como la aparición del monstruo, las actualizaciones del marcador, el anuncio del ganador y el reinicio automático de la partida.
 
-El componente central de este reporte es el estresador experimental del proyecto, porque ahí se concentra la evaluación de desempeño pedida en el PDF.
+Aunque el proyecto completo incluye la lógica de juego, la interfaz gráfica y el servidor, el eje principal de este reporte es el estresador experimental. Esta parte del sistema es especialmente importante porque permite evaluar el desempeño del proyecto bajo carga y producir la evidencia cuantitativa que exige la entrega.
 
-## Objetivo Del Experimento
+## Objetivo del estresador
 
-El objetivo del estresador es medir cómo responde el sistema cuando aumenta la cantidad de clientes concurrentes y cómo cambia el desempeño del registro y del juego bajo carga. En concreto, busca responder estas preguntas:
+El estresador fue diseñado para responder una pregunta central: cómo se comporta el sistema cuando aumenta la concurrencia. En otras palabras, no basta con saber que el juego funciona con pocos clientes; también interesa medir cómo cambian los tiempos de respuesta, qué tan estables son esos tiempos y qué porcentaje de operaciones siguen siendo exitosas cuando el número de jugadores crece.
 
-- cuánto tarda el registro/login cuando hay más clientes en paralelo,
-- cuánta variabilidad presentan esos tiempos,
-- qué porcentaje de registros y golpes se resuelven con éxito,
-- cómo se degrada el desempeño del juego conforme crece la contención entre clientes.
+Desde esa perspectiva, el experimento busca observar dos dimensiones principales. La primera es el costo del registro e inicio de sesión, ya que esas operaciones representan la puerta de entrada al sistema. La segunda es el desempeño del juego en sí, especialmente la capacidad del servidor para aceptar golpes válidos cuando muchos clientes intentan competir por el mismo monstruo casi al mismo tiempo. Para lograrlo, el estresador ejecuta clientes sintéticos que siguen el flujo real del sistema y registra los resultados en archivos CSV que luego pueden analizarse o graficarse.
 
-La herramienta está pensada para generar resultados repetibles y exportables a CSV, de manera que el análisis pueda incluirse en un documento académico o en una entrega de GitHub.
+## Diseño general del estresador
 
-## Arquitectura Del Estresador
+El diseño del estresador está dividido en tres clases principales: `StressTestMain`, `StressClientWorker` y `StressSummary`. Esta separación permite distinguir claramente entre la coordinación del experimento, la simulación de cada cliente y la agregación estadística de los resultados.
 
-El estresador se organiza en tres piezas:
+`StressTestMain` funciona como orquestador. Su trabajo consiste en leer la configuración del experimento, generar las distintas corridas, crear el archivo CSV de salida y ejecutar las combinaciones de clientes y repeticiones definidas por el usuario. Esta clase no simula clientes directamente, sino que se encarga de planear el escenario y consolidar el resultado de cada repetición.
 
-- `StressTestMain`
-  - coordina cada corrida,
-  - lee parámetros por línea de comandos,
-  - crea el archivo CSV,
-  - lanza lotes de clientes para distintas configuraciones,
-  - agrega los resultados por repetición.
+`StressClientWorker` representa a un cliente sintético. Cada instancia ejecuta el comportamiento de un jugador real: se conecta al servidor, intenta registrarse, abre una sesión de juego, consulta el estado del tablero y trata de golpear al monstruo activo. La relevancia de esta clase es que no realiza un benchmark artificial aislado, sino que ejerce el protocolo real del sistema. Gracias a eso, las métricas obtenidas reflejan el comportamiento combinado del servidor TCP, la coordinación de sesión y la lógica del juego.
 
-- `StressClientWorker`
-  - simula un cliente completo,
-  - registra un usuario,
-  - inicia sesión,
-  - consulta el estado del juego,
-  - intenta golpes repetidos sobre el monstruo activo,
-  - reporta tiempos y éxitos individuales.
+`StressSummary`, por último, toma los resultados individuales de muchos workers y los convierte en métricas agregadas. Su papel es importante porque separa la ejecución del experimento de la estadística, lo que hace que el diseño sea más limpio y que los resultados sean más fáciles de interpretar.
 
-- `StressSummary`
-  - agrega los resultados de todos los workers,
-  - calcula promedio, desviación estándar y porcentajes de éxito,
-  - deja una salida compacta lista para el CSV.
+## Implementación paso a paso
 
-El flujo general es:
+El flujo de una corrida comienza en `StressTestMain`. Esta clase toma como base la configuración general del proyecto y permite modificar varios parámetros desde argumentos de línea de comandos. Entre esos parámetros se encuentran el host, el puerto, la lista de tamaños de carga, el número de golpes por cliente, la cantidad de repeticiones, el tiempo de espera entre intentos y la ruta del archivo de salida. Una vez reunidos esos datos, la clase prepara el CSV y recorre cada configuración de clientes. Para cada caso, ejecuta tantas repeticiones como se hayan solicitado y escribe una fila nueva por cada repetición terminada.
 
-1. `StressTestMain` define cantidades de clientes, número de golpes, repeticiones y ruta de salida.
-2. Para cada configuración, crea varios `StressClientWorker` en un `ExecutorService`.
-3. Cada worker usa una conexión TCP independiente y mide tiempos con `System.nanoTime()`.
-4. `StressSummary` consolida los resultados y produce métricas agregadas.
-5. El estresador escribe una fila por repetición en CSV.
+Dentro de cada repetición, `StressTestMain` crea un `ExecutorService` y lanza varios `StressClientWorker` en paralelo. Cada worker genera un nombre de usuario único para evitar colisiones y después sigue dos fases. La primera fase mide el registro. En ella, el worker abre una conexión TCP, envía la petición `REGISTER`, toma el tiempo con `System.nanoTime()` y guarda si el registro fue exitoso. Si el registro funciona, el worker cierra esa sesión inicial y pasa a la segunda fase.
 
-## Implementación
+La segunda fase simula el juego. El worker abre una nueva conexión, realiza `LOGIN` y empieza a consultar repetidamente el estado del juego. Cuando el snapshot indica que hay un monstruo visible, toma la fila, la columna y el `monsterId` activo y envía un `HIT`. También en este caso mide el tiempo de respuesta y registra si el golpe fue aceptado o rechazado. Entre intentos, el worker espera unos milisegundos para introducir una pausa corta que modele mejor el comportamiento de un usuario real y evite convertir el experimento en un simple envío continuo de peticiones.
 
-### `StressTestMain`
+Cuando todos los workers de una repetición terminan, `StressSummary` fusiona sus resultados. En ese momento se calculan promedios, desviaciones estándar y porcentajes de éxito para registro y juego. Finalmente, `StressTestMain` formatea esos valores y los escribe en una fila del archivo CSV.
 
-`StressTestMain` es el orquestador. Sus decisiones principales son:
+## Métricas producidas por el CSV
 
-- usa `AppConfig` como base y permite sobrescribir parámetros por argumentos como `--clients`, `--hits`, `--repetitions`, `--thinkTimeMs` y `--output`,
-- toma por defecto `samples/stress-results.csv` como archivo de salida,
-- escribe una cabecera CSV si el archivo no existe,
-- recorre listas de clientes como `10,50,100`,
-- ejecuta varias repeticiones por configuración,
-- formatea las métricas con dos decimales para facilitar el análisis posterior.
+El CSV contiene una fila por repetición y una serie de columnas que resumen el comportamiento del sistema. Cada fila incluye la marca de tiempo de la corrida, la cantidad de clientes usados, el número de repetición y cuatro tipos de métricas: latencia promedio de registro, desviación estándar del registro, porcentaje de éxito del registro y sus equivalentes para la fase de juego.
 
-La salida que genera por fila incluye:
+En términos prácticos, `register_avg_ms` indica cuánto tarda en promedio una operación de registro o login bajo una carga determinada. `register_stddev_ms` muestra cuánta variación existe entre esos tiempos. `register_success_pct` representa el porcentaje de intentos que fueron aceptados correctamente. De forma análoga, `game_avg_ms`, `game_stddev_ms` y `game_success_pct` describen el comportamiento de la fase de golpe.
 
-- `timestamp`,
-- `clients`,
-- `repetition`,
-- `register_avg_ms`,
-- `register_stddev_ms`,
-- `register_success_pct`,
-- `game_avg_ms`,
-- `game_stddev_ms`,
-- `game_success_pct`.
+Estas métricas no deben leerse de manera aislada. Un promedio alto puede indicar sobrecarga o simplemente más trabajo interno del servidor. Una desviación estándar alta sugiere que el comportamiento se vuelve menos estable conforme aumenta la concurrencia. Un porcentaje de éxito bajo en registro podría revelar problemas de disponibilidad o saturación, mientras que un porcentaje de éxito bajo en juego suele estar más relacionado con la naturaleza competitiva del sistema, donde muchos clientes llegan tarde al mismo monstruo o pierden la carrera contra otro jugador.
 
-### `StressClientWorker`
+## Interpretación de los resultados
 
-Cada worker representa un cliente sintético. Su lógica es importante porque no solo mide, también ejecuta el mismo flujo funcional de un jugador real:
+La lectura correcta del CSV consiste en observar tendencias. Si el tiempo promedio de registro aumenta conforme crece el número de clientes, eso indica que el servidor está absorbiendo el costo natural de atender más conexiones concurrentes. Si además la desviación estándar crece, el sistema se vuelve menos uniforme y algunos clientes comienzan a experimentar respuestas más lentas que otros.
 
-- abre una conexión TCP para el registro,
-- mide el tiempo de `REGISTER`,
-- guarda si el registro fue aceptado,
-- si todo va bien, hace `LOGOUT` de esa primera sesión,
-- abre una nueva conexión para jugar,
-- realiza `LOGIN`,
-- consulta `GAME_STATE` antes de cada intento de golpe,
-- cuando hay un monstruo visible, envía `HIT` con fila, columna y `monsterId`,
-- mide el tiempo del golpe y registra si fue exitoso,
-- realiza una pausa corta con `thinkTimeMs` para modelar un usuario real.
+En la fase de juego, el significado es todavía más interesante. El tiempo de golpe no depende solo del procesamiento interno del servidor, sino también del momento preciso en que el monstruo está visible y de cuántos clientes compiten por él. Por eso, una caída del porcentaje de éxito en golpes no necesariamente significa que exista un error de lógica. En muchos casos refleja un efecto esperado de contención: varios clientes intentan golpear el mismo monstruo, pero solo uno puede reclamarlo de forma válida.
 
-Ese diseño hace que el estresador no sea un simple benchmark artificial de red, sino una ejecución funcional del sistema bajo carga.
+Dicho de otra manera, el estresador no solo sirve para saber si el sistema sigue funcionando, sino también para entender de qué forma se degrada bajo carga y qué parte de esa degradación es aceptable dentro de la lógica del juego.
 
-### `StressSummary`
+## Análisis del CSV incluido
 
-`StressSummary` consolida el trabajo de todos los clientes de una configuración. En concreto:
+El repositorio incluye una muestra en [`samples/stress-results-example.csv`](../samples/stress-results-example.csv). Esa muestra contiene tres configuraciones representativas: 10, 50 y 100 clientes. Aunque no sustituye una campaña experimental completa, sí permite ver una tendencia bastante clara.
 
-- acumula tiempos de registro,
-- acumula tiempos de golpe,
-- cuenta registros exitosos,
-- cuenta golpes exitosos,
-- calcula promedio y desviación estándar usando `StatsUtils`,
-- calcula porcentajes de éxito sobre el total observado.
+En primer lugar, el tiempo promedio de registro crece de manera sostenida al pasar de 10 a 50 y luego a 100 clientes. Lo mismo ocurre con la desviación estándar del registro. Esto sugiere que el servidor maneja bien la carga baja y media, pero empieza a mostrar más variabilidad conforme aumenta la concurrencia. Aun así, el porcentaje de éxito del registro se mantiene muy alto, lo cual indica que el mecanismo de autenticación sigue siendo funcional incluso en la carga más alta del ejemplo.
 
-La decisión de separar la medición por worker y la agregación en otra clase facilita interpretar el resultado por repetición y evita mezclar lógica de ejecución con estadística.
+En la fase de juego se aprecia un comportamiento todavía más marcado. El tiempo promedio de golpe también aumenta con la cantidad de clientes, y la dispersión crece en la misma dirección. Además, el porcentaje de éxito de los golpes disminuye de forma visible. Esta caída es consistente con la lógica del sistema: cuando hay más clientes compitiendo por un único monstruo, es natural que más intentos lleguen tarde o se vuelvan inválidos porque otro cliente ya reclamó ese objetivo.
 
-## Métricas Del CSV
+La conclusión razonable es que el sistema conserva su funcionalidad, pero la contención del juego crece con la carga y eso se refleja tanto en la latencia como en el porcentaje de éxito. Desde el punto de vista experimental, esa es precisamente la clase de comportamiento que el estresador debía evidenciar.
 
-El CSV producido por el estresador mide tres aspectos principales del sistema.
+## Salidas y archivos relevantes
 
-### Registro
+El proyecto trabaja con varios archivos CSV según el tipo de corrida. El repositorio conserva un archivo de ejemplo para documentación y comparación rápida, mientras que las corridas reales generan sus propios resultados en rutas de salida configurables. Por defecto, `StressTestMain` escribe en `samples/stress-results.csv`, y las corridas disparadas desde la interfaz del servidor suelen guardar en `samples/generated/stress-results.csv`. Cada fila nueva representa una repetición concreta y por eso esos archivos van acumulando evidencia experimental corrida tras corrida.
 
-- `register_avg_ms`: tiempo promedio de registro/login.
-- `register_stddev_ms`: dispersión de esos tiempos.
-- `register_success_pct`: porcentaje de registros aceptados.
+Además, la interfaz del servidor ahora permite no solo abrir el último CSV generado, sino también graficarlo de manera sencilla. Esa gráfica resume por cantidad de clientes la latencia promedio y el porcentaje de éxito tanto del registro como del juego, lo que vuelve mucho más fácil identificar tendencias sin necesidad de revisar el archivo completo línea por línea.
 
-### Juego
+## Relación con el sistema completo
 
-- `game_avg_ms`: tiempo promedio de respuesta al golpe.
-- `game_stddev_ms`: dispersión de los tiempos de golpe.
-- `game_success_pct`: porcentaje de golpes que el servidor aceptó como válidos.
-
-### Qué Significa Cada Métrica
-
-- Un promedio más alto suele indicar mayor carga o más trabajo de validación.
-- Una desviación estándar alta indica comportamiento menos estable entre clientes o repeticiones.
-- Un porcentaje de éxito bajo en registro apunta a problemas de disponibilidad, colisiones de nombres o fallas de conexión.
-- Un porcentaje de éxito bajo en juego suele relacionarse con contención por el monstruo activo, golpes fuera de tiempo o sincronización tardía entre clientes.
-
-## Cómo Interpretar Los Resultados
-
-El estresador debe leerse junto con el comportamiento del juego:
-
-- Si aumenta `register_avg_ms` cuando sube la cantidad de clientes, el servidor está mostrando el costo natural de atender más conexiones concurrentes.
-- Si `register_stddev_ms` crece, el sistema se vuelve menos homogéneo entre clientes y aparecen más diferencias entre sesiones.
-- Si `game_avg_ms` sube con más clientes, la contención sobre el monstruo y la coordinación TCP/JMS están afectando la rapidez de respuesta.
-- Si `game_success_pct` baja, muchos intentos de golpe están ocurriendo fuera de la ventana útil del monstruo o con conflictos entre clientes.
-
-En otras palabras, el CSV no solo dice si el sistema "funciona", sino qué tanto se degrada al aumentar la concurrencia.
-
-## Análisis Del CSV Incluido
-
-El repositorio incluye una muestra en [`samples/stress-results-example.csv`](../samples/stress-results-example.csv). Esa muestra contiene tres configuraciones: 10, 50 y 100 clientes.
-
-La tendencia observada es coherente con un sistema concurrente sometido a mayor carga:
-
-- el registro empeora progresivamente de `14.20 ms` a `31.70 ms` y luego a `52.10 ms`,
-- la desviación estándar del registro también crece de `2.85` a `6.10` y `12.35`,
-- el porcentaje de registro exitoso se mantiene alto, aunque cae ligeramente en la carga más alta: `100%`, `100%`, `99%`,
-- el tiempo promedio de juego sube de `4.90 ms` a `8.40 ms` y `13.70 ms`,
-- la dispersión del juego también aumenta: `1.60`, `3.45`, `5.80`,
-- el porcentaje de éxito del juego cae con más fuerza: `87.0%`, `79.2%`, `72.4%`.
-
-La lectura razonable de estos datos es la siguiente:
-
-- el subsistema de registro soporta bien la carga baja y media, pero ya muestra aumento de latencia en la configuración más pesada,
-- el juego es más sensible a la concurrencia porque depende del momento exacto en que el monstruo está visible,
-- la caída de éxito en golpes no necesariamente implica error de lógica; puede reflejar una ventana de juego corta frente a la cantidad de clientes compitiendo,
-- el aumento de la variabilidad sugiere contención entre clientes y efectos de sincronización esperables en un sistema distribuido.
-
-Como solo existe un CSV de ejemplo comprometido en el repositorio, esta sección debe entenderse como un análisis representativo. Las corridas reales generadas por `StressTestMain` se escriben en `samples/stress-results.csv` u otra ruta indicada por parámetro.
-
-## Gráfica Del Último CSV
-
-La siguiente imagen resume visualmente el último CSV de estrés y sirve como apoyo para interpretar tendencia, dispersión y éxito del sistema bajo carga.
-
-![Resumen del último CSV](assets/resumen-ultimo-csv.svg)
-
-## Archivos Y Salidas Del Estresador
-
-- `samples/stress-results-example.csv`
-  - muestra de resultados para documentación y comparación rápida.
-- `samples/stress-results.csv`
-  - salida por defecto de una corrida real si no se sobreescribe `--output`.
-- `samples/generated/stress-results.csv`
-  - ruta usada por la interfaz del servidor para las corridas lanzadas desde la aplicación.
-
-Cada fila adicional en esos archivos representa una repetición concreta de una configuración de clientes.
-
-## Contexto Del Sistema General
-
-Aunque este reporte se centra en el estresador, el sistema completo sigue esta estructura:
-
-- `GameServerMain` inicia el servidor.
-- `AlphaServerRuntime` ensambla broker, motor de juego y TCP.
-- `GameEngine` coordina monstruos, golpes, ganador y reinicio.
-- `GameClientMain` inicia el cliente Swing.
-- `GameClientController` conecta la UI con TCP y JMS.
-- `PlayerRegistry` preserva sesiones y puntajes mientras el servidor siga activo.
-
-## Entregables Actuales
-
-- código fuente completo,
-- ejecutables lógicos para servidor, cliente y estrés,
-- CSV de ejemplo para la evaluación,
-- salida real de estrés en CSV,
-- documentación principal en `README.md`,
-- este reporte en `docs/reporte-proyecto.md`.
+Aunque el foco de este reporte es el estresador, conviene recordar que su valor depende del diseño del sistema que está ejerciendo. El servidor se inicia en `GameServerMain`, donde se levanta `AlphaServerRuntime`. Esa clase ensambla el broker JMS embebido, el publicador de eventos, el registro de jugadores, el motor del juego y el servidor TCP. Del lado cliente, `GameClientMain` crea `GameClientController`, que autentica por TCP, recibe `SessionInfo`, abre las suscripciones JMS y actualiza la interfaz. Gracias a esta arquitectura, el estresador no prueba una simulación simplificada, sino el flujo real de registro, login, consulta de estado y golpe.
 
 ## Cierre
 
-El valor principal del proyecto no es solo que el juego funcione, sino que también puede medirse bajo carga. El estresador convierte la ejecución en evidencia experimental: produce métricas, permite comparar configuraciones y deja un rastro en CSV que puede incluirse en GitHub o en el documento final del proyecto.
+El aporte más importante del proyecto no es únicamente que el juego funcione, sino que además pueda medirse de forma sistemática. El estresador convierte la ejecución del sistema en evidencia cuantitativa. Permite repetir experimentos, variar la carga, generar archivos CSV comparables y observar cómo responde el sistema conforme crece la concurrencia. Eso le da al proyecto una capa adicional de valor académico y técnico, porque no solo presenta una solución funcional, sino también una forma clara de analizar su desempeño.

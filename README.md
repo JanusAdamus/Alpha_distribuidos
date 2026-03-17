@@ -248,8 +248,8 @@ Durante la limpieza se eliminaron estos elementos:
 - `src/main/java/`
   - volvió a ser la raíz canónica del código para que la estructura física coincida con los paquetes Java.
 
-- subdirectorios físicos `mx/unam/alpha`
-  - se conservan porque reflejan correctamente los paquetes `mx.unam.alpha.*`.
+- subdirectorios físicos `mx/itam/alpha`
+  - se conservan porque reflejan correctamente los paquetes `mx.itam.alpha.*`.
 
 - directorios vacíos y rutas redundantes que habían quedado después de movimientos previos.
 
@@ -291,7 +291,7 @@ Ejemplo:
 
 ```bash
 mvn -DskipTests compile exec:java \
-  -Dexec.mainClass=mx.unam.alpha.server.GameServerMain \
+  -Dexec.mainClass=mx.itam.alpha.server.GameServerMain \
   -Dalpha.tcp.port=6060 \
   -Dalpha.game.targetScore=10
 ```
@@ -341,7 +341,7 @@ Solo necesitarías un broker externo si quisieras reemplazar el embebido por uno
 
 ```bash
 mvn -q -DskipTests compile exec:java \
-  -Dexec.mainClass=mx.unam.alpha.server.GameServerMain
+  -Dexec.mainClass=mx.itam.alpha.server.GameServerMain
 ```
 
 ### Qué hace al iniciar
@@ -372,7 +372,7 @@ Si corres el servidor sin entorno gráfico:
 
 ```bash
 mvn -q -DskipTests compile exec:java \
-  -Dexec.mainClass=mx.unam.alpha.client.GameClientMain
+  -Dexec.mainClass=mx.itam.alpha.client.GameClientMain
 ```
 
 Puedes abrir múltiples instancias para probar concurrencia real entre jugadores.
@@ -465,7 +465,7 @@ La limpieza mantuvo el comportamiento, pero dejó el código más directo:
 - `GameEngine` eliminó construcción repetida de respuestas de error.
 - `PlayerRecord` perdió métodos no utilizados.
 - `GameFrame` y `ServerControlFrame` se reorganizaron con métodos de construcción más claros y menos repetición.
-- la ruta física del código ahora vuelve a coincidir con los paquetes Java bajo `src/main/java/mx/unam/alpha`.
+- la ruta física del código ahora vuelve a coincidir con los paquetes Java bajo `src/main/java/mx/itam/alpha`.
 
 ## 17. Dependencias
 

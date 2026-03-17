@@ -16,5 +16,5 @@ else
 fi
 
 mvn -q -DskipTests compile exec:java \
-  -Dexec.mainClass=mx.unam.alpha.stress.StressTestMain \
+  -Dexec.mainClass=mx.itam.alpha.stress.StressTestMain \
   -Dexec.args="$ARGS"
