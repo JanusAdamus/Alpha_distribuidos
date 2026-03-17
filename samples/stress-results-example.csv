@@ -1,0 +1,4 @@
+timestamp,clients,repetition,register_avg_ms,register_stddev_ms,register_success_pct,game_avg_ms,game_stddev_ms,game_success_pct
+2026-03-14T12:00:00,10,1,14.20,2.85,100.00,4.90,1.60,87.00
+2026-03-14T12:05:00,50,1,31.70,6.10,100.00,8.40,3.45,79.20
+2026-03-14T12:10:00,100,1,52.10,12.35,99.00,13.70,5.80,72.40
