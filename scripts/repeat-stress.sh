@@ -9,7 +9,7 @@ if ! command -v mvn >/dev/null 2>&1; then
   exit 1
 fi
 
-CLIENTS="${1:-10,50,100,150,200}"
+CLIENTS="${1:-10,50,100,150,200,250,300,350,400,450,500}"
 HITS="${2:-12}"
 REPETITIONS="${3:-10}"
 OUTPUT="${4:-samples/generated/stress-results.csv}"
