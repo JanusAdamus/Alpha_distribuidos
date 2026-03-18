@@ -98,7 +98,7 @@ public class ServerLauncherController implements ServerControlFrame.Listener {
     @Override
     public void onRunRepeatStress() {
         runStress(Map.of(
-                "clients", "10,50,100,150,200",
+                "clients", "10,50,100,150,200,250,300,350,400,450,500",
                 "hits", "12",
                 "repetitions", "10",
                 "output", "samples/generated/stress-results.csv"
